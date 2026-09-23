@@ -1,0 +1,58 @@
+# Local Elastic Stack for the shopdemo observability demo.
+# Single node, security enabled, HTTP without TLS (local development only).
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    container_name: es01
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=false
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ports:
+      - "127.0.0.1:${ES_PORT}:9200"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -u elastic:${ELASTIC_PASSWORD} http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    container_name: es-setup
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    command:
+      - bash
+      - -c
+      - |
+        echo "Setting kibana_system password..."
+        curl -s -f -X POST -u "elastic:${ELASTIC_PASSWORD}" \
+          -H "Content-Type: application/json" \
+          http://elasticsearch:9200/_security/user/kibana_system/_password \
+          -d "{\"password\":\"${KIBANA_PASSWORD}\"}" \
+        && echo "Done."
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
+    container_name: kibana
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
+    ports:
+      - "127.0.0.1:5601:5601"
+    volumes:
+      - kibanadata:/usr/share/kibana/data
+
+volumes:
+  esdata:
+  kibanadata:
